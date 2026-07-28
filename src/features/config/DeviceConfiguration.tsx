@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  localizedRuntimeText,
+  localizedTaskMessage,
+} from "../../i18n.runtime";
+import {
   Activity,
   AlertTriangle,
   Boxes,
@@ -533,7 +537,7 @@ function SingleObjectTrackingRow({
   onClearTarget,
   onSave,
 }: SingleObjectTrackingRowProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const processingCapability =
     capability?.processing_size ??
     capability?.processingSize ??
@@ -547,6 +551,29 @@ function SingleObjectTrackingRow({
     "box",
   ];
   const fallbackOptions: TrackingFallbackSource[] = ["fastsam", "color", "box"];
+  const runtimeErrorMessage = (() => {
+    const error = status?.error;
+    if (error?.code === "DETECTION_NOT_ENABLED") {
+      return t("config.tracking.errors.detectionNotEnabled");
+    }
+    if (error?.code === "AI_RESOURCE_CONFLICT") {
+      return t("config.tracking.errors.resourceConflict");
+    }
+    if (
+      error?.code === "DETECTION_TARGET_NOT_FOUND" ||
+      error?.code === "TRACKING_NOT_ENABLED" ||
+      error?.code === "TRACKING_TARGET_INVALID" ||
+      error?.code === "TRACKING_EXTRACT_FAILED" ||
+      error?.code === "TRACKING_INIT_FAILED"
+    ) {
+      return t(`config.tracking.errors.${error.code}`);
+    }
+    return localizedRuntimeText(
+      runtimeError ?? error?.message,
+      t("config.tracking.errors.unreachable"),
+      i18n.language,
+    );
+  })();
 
   return (
     <div className="feature-row feature-row--tracking tracking-panel">
@@ -658,7 +685,7 @@ function SingleObjectTrackingRow({
       )}
       {(runtimeError || status?.error) && (
         <div className="tracking-panel__error" role="alert">
-          {runtimeError ?? status?.error?.message}
+          {runtimeErrorMessage}
         </div>
       )}
       <div className="tracking-panel__actions">
@@ -880,6 +907,9 @@ export function DeviceConfiguration({
     if (issue.code === "AI_FEATURE_CONFLICT") {
       return t("config.validation.aiFeatureConflict");
     }
+    if (issue.code === "USB_RECONNECT") {
+      return t("config.managementReconnectWarning");
+    }
     if (issue.code === "OUT_OF_RANGE") {
       if (
         issue.field.endsWith(".threshold") ||
@@ -904,8 +934,17 @@ export function DeviceConfiguration({
         }
       }
     }
-    return issue.message;
+    return localizedRuntimeText(
+      issue.message,
+      t("config.validation.operationFailed"),
+      i18n.language,
+    );
   };
+  const localizedRequestError = localizedRuntimeText(
+    configuration.requestError,
+    t("config.validation.unreachable"),
+    i18n.language,
+  );
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -1231,7 +1270,7 @@ export function DeviceConfiguration({
             <div className="configuration-loading" role="alert">
               <AlertTriangle size={24} />
               <strong>{t("config.readFailed")}</strong>
-              <span>{configuration.requestError}</span>
+              <span>{localizedRequestError}</span>
               <button
                 className="button button--secondary"
                 type="button"
@@ -1331,7 +1370,7 @@ export function DeviceConfiguration({
                       )}
                       {configuration.applicationConfirmation.warnings.map((warning) => (
                         <span key={`${warning.field}-${warning.code}`}>
-                          {warning.message}
+                          {issueMessage(warning)}
                         </span>
                       ))}
                     </div>
@@ -1360,8 +1399,12 @@ export function DeviceConfiguration({
                       <span>
                         {configuration.applicationState === "restart_pending"
                           ? t("config.restartPending")
-                          : configuration.task?.message ??
-                            t("config.networkTolerance")}
+                          : configuration.task
+                            ? localizedTaskMessage(
+                                configuration.task,
+                                i18n.language,
+                              )
+                            : t("config.networkTolerance")}
                       </span>
                       {configuration.task?.progress !== undefined && (
                         <output>{taskProgress}%</output>
@@ -1388,7 +1431,17 @@ export function DeviceConfiguration({
                       <AlertTriangle size={17} />
                     )}
                     <div>
-                      <strong>{configuration.outcome.message}</strong>
+                      <strong>
+                        {localizedRuntimeText(
+                          configuration.outcome.message,
+                          configuration.outcome.type === "success"
+                            ? t("config.validation.applySuccess")
+                            : configuration.outcome.rolledBack
+                              ? t("config.validation.rolledBack")
+                              : t("config.validation.operationFailed"),
+                          i18n.language,
+                        )}
+                      </strong>
                       {configuration.outcome.type === "error" &&
                         configuration.outcome.rolledBack !== undefined && (
                         <span>
@@ -1412,7 +1465,7 @@ export function DeviceConfiguration({
                 {configuration.requestError && (
                   <div className="config-notice config-notice--error" role="alert">
                     <AlertTriangle size={17} />
-                    <strong>{configuration.requestError}</strong>
+                    <strong>{localizedRequestError}</strong>
                   </div>
                 )}
 

@@ -8,6 +8,8 @@ const RESPONSIVE_CONFIG_TEST_TITLE =
   "scales the configuration workspace and keeps the dashboard fixed at 2K";
 const ENGLISH_MOBILE_CONFIG_TEST_TITLE =
   "keeps the English configuration workspace usable on mobile";
+const RUNTIME_LOCALIZATION_TEST_TITLE =
+  "localizes device runtime messages and model catalog values in English";
 
 test.beforeEach(async ({ page }, testInfo) => {
   await page.addInitScript(() => {
@@ -28,6 +30,7 @@ test.beforeEach(async ({ page }, testInfo) => {
       RESPONSIVE_IDLE_TEST_TITLE,
       RESPONSIVE_CONFIG_TEST_TITLE,
       ENGLISH_MOBILE_CONFIG_TEST_TITLE,
+      RUNTIME_LOCALIZATION_TEST_TITLE,
     ].includes(testInfo.title)
   ) {
     return;
@@ -621,6 +624,115 @@ test("opens device discovery without a managed workspace policy", async ({ page 
 
   await expect(page.getByRole("button", { name: "搜索设备" })).toBeVisible();
   await expect(page.getByRole("heading", { name: /安装 OVIS 支持包/ })).toHaveCount(0);
+});
+
+test(RUNTIME_LOCALIZATION_TEST_TITLE, async ({ page }) => {
+  const model = {
+    id: "018f1234abcd5678",
+    status: "ready",
+    importerId: "detection.yolov8",
+    schemaVersion: 1,
+    name: "Helmet detector",
+    fileSize: 3_145_728,
+    createdAt: 1_784_505_600,
+    committedAt: 1_784_505_605,
+    modelType: "YOLOV8",
+    task: "目标检测",
+    deployable: true,
+    metadataSummary: { labelsCount: 2 },
+    active: false,
+    referenced: false,
+    tensorSize: { width: 640, height: 640 },
+    deployment: {
+      threshold: 0.3,
+      processingSize: { width: 448, height: 256 },
+    },
+  };
+  let revision = currentConfig.revision;
+  let values = structuredClone(currentConfig.values);
+
+  await page.route("**/api/v1/models/importers", (route) =>
+    fulfillJson(route, modelImporterCatalog),
+  );
+  await page.route("**/api/v1/models", (route) =>
+    fulfillJson(route, {
+      models: [model],
+      storage: {
+        totalBytes: 67_108_864,
+        availableBytes: 52_428_800,
+        reservedBytes: 2_097_152,
+      },
+    }),
+  );
+  await page.route("**/api/v1/config/capabilities", (route) =>
+    fulfillJson(route, configCapabilities),
+  );
+  await page.route("**/api/v1/config/validate", (route) =>
+    fulfillJson(route, {
+      valid: true,
+      errors: [],
+      warnings: [{
+        field: "outputs.uvc.enabled",
+        code: "USB_RECONNECT",
+        message: "UVC 变更会短暂中断 USB 连接",
+      }],
+      requires: ["ipcamera_restart", "management_reconnect"],
+    }),
+  );
+  await page.route("**/api/v1/config/apply", (route) =>
+    fulfillJson(route, { task_id: 91 }),
+  );
+  await page.route("**/api/v1/tasks/91", (route) =>
+    fulfillJson(route, {
+      id: 91,
+      state: "running",
+      stage: "restarting_ipcamera",
+      progress: 60,
+      message: "正在重启视频服务",
+      rolled_back: false,
+    }),
+  );
+  await page.route("**/api/v1/config", async (route) => {
+    if (route.request().method() === "PUT") {
+      const payload = await route.request().postDataJSON() as {
+        values: typeof currentConfig.values;
+      };
+      values = structuredClone(payload.values);
+      revision = "english-runtime-test";
+      return fulfillJson(route, {
+        saved: true,
+        revision,
+        restart_required: true,
+      });
+    }
+    return fulfillJson(route, { revision, values });
+  });
+
+  await discoverSingleDevice(page);
+  await page.getByRole("radio").click();
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+
+  const modelTable = page.locator(".model-table");
+  await expect(modelTable).toContainText("Object detection");
+  await expect(modelTable).toContainText("Ready");
+  await expect(modelTable).not.toContainText("目标检测");
+  await expect(modelTable).not.toContainText("已就绪");
+
+  await page.getByRole("button", { name: "Add model" }).click();
+  await page.getByRole("button", { name: /Object detection/ }).click();
+  await expect(page.getByText("YOLOv8 object detection", { exact: true })).toBeVisible();
+  await expect(page.getByText("YOLOv8 目标检测", { exact: true })).toHaveCount(0);
+
+  await page.getByRole("switch", { name: "Enable OSD" }).click();
+  await page.getByRole("button", { name: "Apply configuration" }).click();
+  const confirmation = page.getByRole("alertdialog", {
+    name: "Apply these configuration changes?",
+  });
+  await expect(confirmation).not.toContainText("UVC 变更会短暂中断 USB 连接");
+  await expect(confirmation).toContainText("management network may reconnect briefly");
+  await confirmation.getByRole("button", { name: "Confirm and apply" }).click();
+  await expect(page.getByText("Restarting the video service")).toBeVisible();
+  await expect(page.getByText("正在重启视频服务")).toHaveCount(0);
 });
 
 test("discovers network devices when WebUSB is unavailable", async ({ page }) => {

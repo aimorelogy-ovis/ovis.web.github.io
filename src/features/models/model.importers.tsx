@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { localizedImporterName } from "../../i18n.runtime";
 import { ArrowDown, ArrowUp, Plus, RotateCcw, Trash2, Upload } from "lucide-react";
 import type {
   ImportFormSubmission,
@@ -340,7 +341,7 @@ function ImportFrame({
   onCancel,
   children,
 }: ImportFrameProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   return (
     <form
       className="model-import-form"
@@ -352,7 +353,7 @@ function ImportFrame({
       <header>
         <div>
           <span>{importer.id}</span>
-          <h4>{importer.name}</h4>
+          <h4>{localizedImporterName(importer.id, importer.name, i18n.language)}</h4>
         </div>
         <small>{t("models.maxFile", { size: formatBytes(Math.min(importer.maxFileSize, availableBytes)) })}</small>
       </header>
