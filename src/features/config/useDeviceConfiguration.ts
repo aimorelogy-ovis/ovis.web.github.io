@@ -214,14 +214,25 @@ const normalizeOutputMode = (
     outputs?: {
       rtsp?: { enabled?: unknown };
       uvc?: { enabled?: unknown };
+      display?: { enabled?: unknown; mode?: unknown };
     };
   }).outputs;
   const rtspEnabled = rawOutputs?.rtsp?.enabled === true;
   const uvcEnabled = rawOutputs?.uvc?.enabled === true;
+  const displayOutput = rawOutputs?.display;
   const useRtsp = rtspEnabled && !uvcEnabled;
   normalized.outputs = {
     rtsp: { enabled: useRtsp },
     uvc: { enabled: !useRtsp },
+    ...(typeof displayOutput?.enabled === "boolean" &&
+      typeof displayOutput.mode === "string"
+      ? {
+          display: {
+            enabled: displayOutput.enabled,
+            mode: displayOutput.mode,
+          },
+        }
+      : {}),
   };
   return normalized;
 };
@@ -312,6 +323,14 @@ const serializeConfigValues = (
   serialized.outputs = {
     rtsp: { enabled: outputValues.rtsp.enabled },
     uvc: { enabled: outputValues.uvc.enabled },
+    ...(outputValues.display
+      ? {
+          display: {
+            enabled: outputValues.display.enabled,
+            mode: outputValues.display.mode,
+          },
+        }
+      : {}),
   };
 
   if (values.detection.human_pose) {
@@ -462,8 +481,12 @@ const assertCompleteConfigDocument = (
   document: DeviceConfigDocument,
 ) => {
   if (
-    capabilities.schema_version >= 5 &&
-    typeof document.values.ai_isp?.bnr.enabled !== "boolean"
+    (capabilities.schema_version >= 5 &&
+      typeof document.values.ai_isp?.bnr.enabled !== "boolean") ||
+    (capabilities.schema_version >= 7 &&
+      capabilities.outputs?.display?.supported === true &&
+      (typeof document.values.outputs?.display?.enabled !== "boolean" ||
+        typeof document.values.outputs.display.mode !== "string"))
   ) {
     throw new ConfigRequestError(i18n.t("config.validation.invalidData"));
   }
@@ -527,6 +550,21 @@ function validateDraftLocally(
       field: "outputs",
       code: "INVALID_OUTPUT_MODE",
       message: i18n.t("config.validation.invalidOutputMode"),
+    });
+  }
+
+  const displayCapability = capabilities.outputs?.display;
+  const displayValues = values.outputs?.display;
+  if (
+    displayCapability?.supported === true &&
+    (typeof displayValues?.enabled !== "boolean" ||
+      typeof displayValues.mode !== "string" ||
+      !displayCapability.modes.some((mode) => mode.id === displayValues.mode))
+  ) {
+    errors.push({
+      field: "outputs.display",
+      code: "INVALID_DISPLAY_MODE",
+      message: i18n.t("config.validation.invalidDisplayMode"),
     });
   }
 

@@ -21,6 +21,7 @@ import {
   ScanFace,
   Settings2,
   Sparkles,
+  Tv,
   Unplug,
   Usb,
   Video,
@@ -811,7 +812,8 @@ export function DeviceConfiguration({
   const hasOutputServices =
     outputValues !== undefined &&
     (outputCapabilities?.rtsp.supported === true ||
-      outputCapabilities?.uvc.supported === true);
+      outputCapabilities?.uvc.supported === true ||
+      outputCapabilities?.display?.supported === true);
   const hasOverlay =
     configuration.capabilities?.overlay !== undefined
       ? configuration.capabilities.overlay.supported === true
@@ -820,6 +822,8 @@ export function DeviceConfiguration({
     outputCapabilities?.rtsp.supported !== true ||
     outputValues?.rtsp.enabled === true;
   const outputMode = outputValues?.rtsp.enabled === true ? "rtsp" : "uvc";
+  const displayCapability = outputCapabilities?.display;
+  const displayValues = outputValues?.display;
   const motionCapability = configuration.capabilities?.ai?.motion_detection;
   const motionFeatureCapability = configuration.capabilities?.ai?.features.find(
     (feature) => feature.id === "motion",
@@ -1593,10 +1597,9 @@ export function DeviceConfiguration({
                               aria-checked={outputMode === "uvc"}
                               onClick={() =>
                                 configuration.updateDraft((draft) => {
-                                  draft.outputs = {
-                                    uvc: { enabled: true },
-                                    rtsp: { enabled: false },
-                                  };
+                                  if (!draft.outputs) return;
+                                  draft.outputs.uvc.enabled = true;
+                                  draft.outputs.rtsp.enabled = false;
                                 })
                               }
                             >
@@ -1611,10 +1614,9 @@ export function DeviceConfiguration({
                               aria-checked={outputMode === "rtsp"}
                               onClick={() =>
                                 configuration.updateDraft((draft) => {
-                                  draft.outputs = {
-                                    uvc: { enabled: false },
-                                    rtsp: { enabled: true },
-                                  };
+                                  if (!draft.outputs) return;
+                                  draft.outputs.uvc.enabled = false;
+                                  draft.outputs.rtsp.enabled = true;
                                 })
                               }
                             >
@@ -1624,6 +1626,55 @@ export function DeviceConfiguration({
                           )}
                         </div>
                       </div>
+                      {displayCapability?.supported && displayValues && (
+                        <div className="display-output-panel">
+                          <div className="display-output-panel__identity">
+                            <span aria-hidden="true">
+                              <Tv size={18} />
+                            </span>
+                            <div>
+                              <strong>{t("config.outputs.display")}</strong>
+                              <small>
+                                {displayValues.enabled
+                                  ? t("common.enabled")
+                                  : t("common.disabled")}
+                              </small>
+                            </div>
+                          </div>
+                          <div className="display-output-panel__controls">
+                            <label>
+                              <span>{t("config.outputs.displayMode")}</span>
+                              <select
+                                value={displayValues.mode}
+                                disabled={isBusy || !displayValues.enabled}
+                                onChange={(event) =>
+                                  configuration.updateDraft((draft) => {
+                                    if (draft.outputs?.display)
+                                      draft.outputs.display.mode = event.target.value;
+                                  })
+                                }
+                              >
+                                {displayCapability.modes.map((mode) => (
+                                  <option value={mode.id} key={mode.id}>
+                                    {mode.width} × {mode.height} · {mode.fps} fps
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <Toggle
+                              checked={displayValues.enabled}
+                              disabled={isBusy}
+                              label={t("config.outputs.enableDisplay")}
+                              onChange={(enabled) =>
+                                configuration.updateDraft((draft) => {
+                                  if (draft.outputs?.display)
+                                    draft.outputs.display.enabled = enabled;
+                                })
+                              }
+                            />
+                          </div>
+                        </div>
+                      )}
                     </section>
                   )}
 

@@ -2231,6 +2231,63 @@ test("renders output capabilities and disables only RTSP-dependent controls", as
   await expect(rtsp).not.toBeChecked();
 });
 
+test("controls MS7024 output independently from UVC and RTSP", async ({ page }) => {
+  const capabilities = {
+    ...structuredClone(configCapabilities),
+    schema_version: 7,
+    outputs: {
+      ...structuredClone(configCapabilities.outputs),
+      display: {
+        supported: true,
+        default_enabled: false,
+        apply_mode: "ipcamera_restart",
+        modes: [{ id: "720x480_60", width: 720, height: 480, fps: 60 }],
+      },
+    },
+  };
+  const configuration = {
+    ...structuredClone(currentConfig),
+    values: {
+      ...structuredClone(currentConfig.values),
+      outputs: {
+        ...structuredClone(currentConfig.values.outputs),
+        display: { enabled: false, mode: "720x480_60" },
+      },
+    },
+  };
+  await page.route("**/api/v1/config/capabilities", (route) =>
+    fulfillJson(route, capabilities),
+  );
+  await page.route("**/api/v1/config", (route) =>
+    fulfillJson(route, configuration),
+  );
+  await page.route("**/api/v1/models/importers", (route) =>
+    fulfillJson(route, modelImporterCatalog),
+  );
+  await page.route("**/api/v1/models", (route) =>
+    fulfillJson(route, {
+      models: [],
+      storage: { totalBytes: 0, availableBytes: 0, reservedBytes: 0 },
+    }),
+  );
+  await discoverSingleDevice(page);
+  await page.getByRole("radio").click();
+  await page.getByRole("button", { name: "连接", exact: true }).click();
+
+  const display = page.getByRole("switch", {
+    name: "启用 MS7024 模拟视频输出",
+  });
+  const displayMode = page.getByRole("combobox", { name: "信号格式" });
+  await expect(display).not.toBeChecked();
+  await expect(displayMode).toBeDisabled();
+  await display.click();
+  await expect(display).toBeChecked();
+  await expect(displayMode).toBeEnabled();
+  await expect(displayMode).toHaveValue("720x480_60");
+  await page.getByRole("radio", { name: "RTSP 输出" }).click();
+  await expect(display).toBeChecked();
+});
+
 test("normalizes legacy invalid output states to UVC without auto-saving", async ({
   page,
 }) => {
