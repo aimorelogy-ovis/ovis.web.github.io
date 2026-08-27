@@ -127,6 +127,16 @@ export interface OutputCapabilities {
   uvc: {
     supported: boolean;
   };
+  display?: {
+    supported: boolean;
+    apply_mode: "ipcamera_restart";
+    modes: Array<{
+      id: string;
+      width: number;
+      height: number;
+      fps: number;
+    }>;
+  };
 }
 
 export type OverlayTextPosition =
@@ -238,6 +248,10 @@ export interface DeviceConfigValues {
     };
     uvc: {
       enabled: boolean;
+    };
+    display?: {
+      enabled: boolean;
+      mode: string;
     };
   };
   video: {
