@@ -3045,6 +3045,23 @@ a:focus-visible {
   border: var(--track-width) solid var(--track-color);
 }
 
+.overlay-preview__tracking.overlay-preview__box--corners,
+.overlay-preview__tracking-lost.overlay-preview__box--corners {
+  border: none;
+}
+
+.overlay-preview__corners {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  stroke: var(--track-color);
+  stroke-width: var(--track-width);
+}
+
+.overlay-preview__tracking-lost .overlay-preview__corners {
+  stroke: var(--track-lost-color);
+}
+
 .overlay-preview__tracking em {
   background: var(--track-color);
 }

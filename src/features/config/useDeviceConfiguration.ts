@@ -82,6 +82,8 @@ const defaultOverlayValues = (enabled = false): OverlayConfigValues => ({
     enabled: false,
     color: "#FFB000",
     lostColor: "#FF3030",
+    boxStyle: "rectangle",
+    hideWhenLost: false,
     thickness: 3,
   },
   reticle: {
@@ -187,6 +189,8 @@ const normalizeConfigValues = (values: DeviceConfigValues): DeviceConfigValues =
       enabled: currentTracking?.enabled ?? legacyTracking?.enabled === true,
       default_target_source: defaultSource,
       fallback_target_source: fallbackSource,
+      selection_mode: currentTracking?.selection_mode ?? "point",
+      initial_box_mode: currentTracking?.initial_box_mode ?? "target",
       score_threshold:
         currentTracking?.score_threshold ?? legacyTracking?.score_threshold ?? 0.5,
       use_kalman: currentTracking?.use_kalman ?? legacyTracking?.use_kalman ?? true,
@@ -269,7 +273,18 @@ const serializeConfigValues = (
             color: text.color,
           })),
           detection: { ...values.overlay.detection },
-          tracking: { ...values.overlay.tracking },
+          tracking: {
+            enabled: values.overlay.tracking.enabled,
+            color: values.overlay.tracking.color,
+            lostColor: values.overlay.tracking.lostColor,
+            thickness: values.overlay.tracking.thickness,
+            ...(capabilities.overlay?.trackingBoxStyles?.length ? {
+              boxStyle: values.overlay.tracking.boxStyle ?? "rectangle",
+            } : {}),
+            ...(capabilities.overlay?.trackingHideWhenLost ? {
+              hideWhenLost: values.overlay.tracking.hideWhenLost ?? false,
+            } : {}),
+          },
           reticle: { ...values.overlay.reticle },
         }
       : { enabled: values.overlay.enabled },
@@ -312,6 +327,18 @@ const serializeConfigValues = (
       },
     },
   };
+
+  const trackingCapability = capabilities.ai?.features.find((feature) =>
+    ["single_object_tracking", "object_tracking"].includes(feature.id),
+  );
+  if (trackingCapability?.selection_modes?.length) {
+    serialized.tracking.single_object.selection_mode =
+      values.tracking.single_object.selection_mode ?? "point";
+  }
+  if (trackingCapability?.initial_box_modes?.length) {
+    serialized.tracking.single_object.initial_box_mode =
+      values.tracking.single_object.initial_box_mode ?? "target";
+  }
 
   if (values.ai_isp) {
     serialized.ai_isp = {
@@ -811,6 +838,22 @@ function validateDraftLocally(
     (feature) =>
       feature.id === "single_object_tracking" || feature.id === "object_tracking",
   );
+  if (trackingCapability?.selection_modes?.length &&
+      !trackingCapability.selection_modes.includes(values.tracking.single_object.selection_mode ?? "point")) {
+    errors.push({ field: "tracking.single_object.selection_mode", code: "UNSUPPORTED_VALUE", message: i18n.t("config.validation.trackingOption") });
+  }
+  if (trackingCapability?.initial_box_modes?.length &&
+      !trackingCapability.initial_box_modes.includes(values.tracking.single_object.initial_box_mode ?? "target")) {
+    errors.push({ field: "tracking.single_object.initial_box_mode", code: "UNSUPPORTED_VALUE", message: i18n.t("config.validation.trackingOption") });
+  }
+  if (capabilities.overlay?.trackingBoxStyles?.length &&
+      !capabilities.overlay.trackingBoxStyles.includes(values.overlay.tracking.boxStyle ?? "rectangle")) {
+    errors.push({ field: "overlay.tracking.boxStyle", code: "UNSUPPORTED_VALUE", message: i18n.t("config.validation.trackingOption") });
+  }
+  if (capabilities.overlay?.trackingHideWhenLost &&
+      values.overlay.tracking.hideWhenLost !== undefined && typeof values.overlay.tracking.hideWhenLost !== "boolean") {
+    errors.push({ field: "overlay.tracking.hideWhenLost", code: "UNSUPPORTED_VALUE", message: i18n.t("config.validation.trackingOption") });
+  }
   validateProcessingSize(
     "tracking.single_object.processing_size",
     values.tracking.single_object.processing_size,

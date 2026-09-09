@@ -16,6 +16,10 @@ export type TpuFeatureId =
   | "face"
   | "human_pose";
 
+export type TrackingSelectionMode = "point" | "reticle";
+export type TrackingInitialBoxMode = "target" | "fixed_80";
+export type TrackingBoxStyle = "rectangle" | "corners";
+
 export type TrackingTargetSource = "detection" | "fastsam" | "color" | "box";
 export type TrackingFallbackSource = Exclude<TrackingTargetSource, "detection">;
 
@@ -78,6 +82,8 @@ export interface AiFeatureCapability {
   search_methods?: Array<"color" | "fastsam">;
   target_sources?: TrackingTargetSource[];
   fallback_target_sources?: TrackingFallbackSource[];
+  selection_modes?: TrackingSelectionMode[];
+  initial_box_modes?: TrackingInitialBoxMode[];
   processing_size?: ProcessingSizeCapability;
   processingSize?: ProcessingSizeCapability;
   detection_processing_size?: ProcessingSizeCapability;
@@ -181,6 +187,8 @@ export interface OverlayConfigValues {
     enabled: boolean;
     color: string;
     lostColor: string;
+    boxStyle?: TrackingBoxStyle;
+    hideWhenLost?: boolean;
     thickness: number;
   };
   reticle: {
@@ -205,6 +213,8 @@ export interface OverlayCapabilities {
   colorModes: OverlayColorMode[];
   labelModes: OverlayLabelMode[];
   reticleTemplates: ReticleTemplate[];
+  trackingBoxStyles?: TrackingBoxStyle[];
+  trackingHideWhenLost?: boolean;
   streams: Record<string, { text: boolean; ai: boolean }>;
 }
 
@@ -287,6 +297,8 @@ export interface DeviceConfigValues {
       enabled: boolean;
       default_target_source: TrackingTargetSource;
       fallback_target_source: TrackingFallbackSource;
+      selection_mode?: TrackingSelectionMode;
+      initial_box_mode?: TrackingInitialBoxMode;
       score_threshold: number;
       use_kalman: boolean;
       processing_size: ProcessingSize;

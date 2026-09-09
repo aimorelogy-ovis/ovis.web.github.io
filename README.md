@@ -102,3 +102,13 @@ Vite 和 GitHub Pages 部署均使用根路径 `/`，用于自定义域名
 `ovis.aimorelogy.com`。仓库通过 GitHub Actions 发布，因此自定义域名应在
 仓库的 `Settings > Pages > Custom domain` 中配置，而不是依赖仓库内的
 `CNAME` 文件。
+
+## 可选跟踪交互与框样式
+
+设备公布 `selection_modes`、`initial_box_modes` 后，单目标跟踪设置显示“点选位置”和
+“初始化区域”：可保留点击处，也可选择准星中心；初始化可使用目标区域，或使用固定
+80×80 种子并跳过初始化分割。默认保持点击处和目标区域。
+
+设备公布 `trackingBoxStyles`、`trackingHideWhenLost` 后，OSD 设置支持完整矩形／四角角标
+及丢失时隐藏。角标继续使用已有颜色和线宽设置，预览同步更新。单独修改 OSD 仍走热更新，
+修改跟踪选取方式会重启视频服务。连接旧固件时隐藏新增控件，保存时不发送未公布的字段。

@@ -43,6 +43,8 @@ import type {
   ProcessingSizeCapability,
   StreamConfigValues,
   TrackingFallbackSource,
+  TrackingSelectionMode,
+  TrackingInitialBoxMode,
   TrackingStatus,
   TrackingTargetSource,
   TpuFeatureId,
@@ -509,6 +511,8 @@ interface SingleObjectTrackingRowProps {
   onToggle: (checked: boolean) => void;
   onDefaultSource: (source: TrackingTargetSource) => void;
   onFallbackSource: (source: TrackingFallbackSource) => void;
+  onSelectionMode: (mode: TrackingSelectionMode) => void;
+  onInitialBoxMode: (mode: TrackingInitialBoxMode) => void;
   onKalman: (enabled: boolean) => void;
   onScoreThreshold: (value: number) => void;
   onFastsamThreshold: (value: number) => void;
@@ -530,6 +534,8 @@ function SingleObjectTrackingRow({
   onToggle,
   onDefaultSource,
   onFallbackSource,
+  onSelectionMode,
+  onInitialBoxMode,
   onKalman,
   onScoreThreshold,
   onFastsamThreshold,
@@ -664,6 +670,29 @@ function SingleObjectTrackingRow({
         </div>
       )}
       <div className="tracking-parameter-grid">
+        {capability?.selection_modes?.length ? (
+          <label className="tracking-control">
+            <span>{t("config.tracking.selectionMode")}</span>
+            <select value={values.selection_mode ?? "point"} disabled={disabled || !values.enabled}
+              onChange={(event) => onSelectionMode(event.target.value as TrackingSelectionMode)}>
+              {capability.selection_modes.map((mode) => (
+                <option key={mode} value={mode}>{t(`config.tracking.selectionModes.${mode}`)}</option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        {capability?.initial_box_modes?.length ? (
+          <label className="tracking-control">
+            <span>{t("config.tracking.initialBoxMode")}</span>
+            <select value={values.initial_box_mode ?? "target"} disabled={disabled || !values.enabled}
+              onChange={(event) => onInitialBoxMode(event.target.value as TrackingInitialBoxMode)}>
+              {capability.initial_box_modes.map((mode) => (
+                <option key={mode} value={mode}>{t(`config.tracking.initialBoxModes.${mode}`)}</option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+
         <label className="feature-row__range">
           <span>{t("config.tracking.fastsamThreshold")}</span>
           <input type="range" min={0} max={1} step={0.01} value={values.fastsam.threshold} disabled={disabled || !values.enabled} onChange={(event) => onFastsamThreshold(Number(event.target.value))} />
@@ -1853,6 +1882,16 @@ export function DeviceConfiguration({
                           onFallbackSource={(source) =>
                             configuration.updateDraft((draft) => {
                               draft.tracking.single_object.fallback_target_source = source;
+                            })
+                          }
+                          onSelectionMode={(mode) =>
+                            configuration.updateDraft((draft) => {
+                              draft.tracking.single_object.selection_mode = mode;
+                            })
+                          }
+                          onInitialBoxMode={(mode) =>
+                            configuration.updateDraft((draft) => {
+                              draft.tracking.single_object.initial_box_mode = mode;
                             })
                           }
                           onKalman={(enabled) =>

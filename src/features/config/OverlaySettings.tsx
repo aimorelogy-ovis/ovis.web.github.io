@@ -80,6 +80,15 @@ function ThicknessField({
   );
 }
 
+function TrackingCorners() {
+  return (
+    <svg className="overlay-preview__corners" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M 1 25 V 1 H 25 M 75 1 H 99 V 25 M 99 75 V 99 H 75 M 25 99 H 1 V 75"
+        fill="none" vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
 function ReticleShape({ template }: { template: ReticleTemplate }) {
   return (
     <span className={`overlay-reticle overlay-reticle--${template}`} aria-hidden="true">
@@ -170,10 +179,15 @@ function OverlayPreview({
         )}
         {values.enabled && values.tracking.enabled && (
           <>
-            <span className="overlay-preview__tracking">
+            <span className={`overlay-preview__tracking ${values.tracking.boxStyle === "corners" ? "overlay-preview__box--corners" : ""}`}>
+              {values.tracking.boxStyle === "corners" && <TrackingCorners />}
               <em>{t("config.overlay.preview.tracking")}</em>
             </span>
-            <span className="overlay-preview__tracking-lost" />
+            {!values.tracking.hideWhenLost && (
+              <span className={`overlay-preview__tracking-lost ${values.tracking.boxStyle === "corners" ? "overlay-preview__box--corners" : ""}`}>
+                {values.tracking.boxStyle === "corners" && <TrackingCorners />}
+              </span>
+            )}
           </>
         )}
         {values.enabled && values.reticle.enabled && (
@@ -435,6 +449,31 @@ export function OverlaySettings({
                   <span />
                 </button>
               </div>
+              {capability.trackingBoxStyles?.length ? (
+                <label className="overlay-select-field">
+                  <span>{t("config.overlay.ai.boxStyle")}</span>
+                  <select value={values.tracking.boxStyle ?? "rectangle"} disabled={disabled || !values.tracking.enabled}
+                    onChange={(event) => onChange((overlay) => {
+                      overlay.tracking.boxStyle = event.target.value as "rectangle" | "corners";
+                    })}>
+                    {capability.trackingBoxStyles.map((style) => (
+                      <option key={style} value={style}>{t(`config.overlay.ai.boxStyles.${style}`)}</option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              {capability.trackingHideWhenLost && (
+                <div className="overlay-switch-row">
+                  <span>{t("config.overlay.ai.hideWhenLost")}</span>
+                  <button className="config-toggle" type="button" role="switch"
+                    aria-label={t("config.overlay.ai.hideWhenLost")}
+                    aria-checked={values.tracking.hideWhenLost === true}
+                    disabled={disabled || !values.tracking.enabled}
+                    onClick={() => onChange((overlay) => { overlay.tracking.hideWhenLost = !overlay.tracking.hideWhenLost; })}>
+                    <span />
+                  </button>
+                </div>
+              )}
               <ColorField
                 label={t("config.overlay.ai.trackingColor")}
                 value={values.tracking.color}

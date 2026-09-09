@@ -3484,3 +3484,115 @@ test(ENGLISH_MOBILE_CONFIG_TEST_TITLE, async ({ page }) => {
     fullPage: true,
   });
 });
+
+// Configurable Dayou selection and OSD options must not change old firmware behavior.
+test("persists configurable target selection and tracking corners", async ({ page }) => {
+  const capabilities = structuredClone(configCapabilities);
+  capabilities.schema_version = 8;
+  Object.assign(capabilities.outputs, {
+    display: { supported: true, apply_mode: "ipcamera_restart", modes: [{ id: "720x480_60", width: 720, height: 480, fps: 60 }] },
+  });
+  Object.assign(capabilities.overlay, {
+    trackingBoxStyles: ["rectangle", "corners"],
+    trackingHideWhenLost: true,
+  });
+  Object.assign(capabilities.ai.features.find((feature) => feature.id === "object_tracking")!, {
+    selection_modes: ["point", "reticle"],
+    initial_box_modes: ["target", "fixed_80"],
+  });
+  const split = splitDetectionTrackingConfig();
+  let document = {
+    ...split,
+    values: {
+      ...split.values,
+      ai_isp: { bnr: { enabled: false } },
+      outputs: { ...split.values.outputs, display: { enabled: false, mode: "720x480_60" } },
+      overlay: {
+        ...split.values.overlay,
+        tracking: { ...split.values.overlay.tracking, boxStyle: "rectangle", hideWhenLost: false },
+      },
+      tracking: { single_object: { ...split.values.tracking.single_object, selection_mode: "point", initial_box_mode: "target" } },
+    },
+  };
+  const submitted: Array<typeof document> = [];
+  const requires: string[][] = [];
+  await mockConfigurationRead(page, split);
+  await page.route("**/api/v1/config/capabilities", (route) => fulfillJson(route, capabilities));
+  await page.route("**/api/v1/config/validate", async (route) => {
+    const payload = await route.request().postDataJSON() as typeof document;
+    const next = payload.values.tracking.single_object;
+    const old = document.values.tracking.single_object;
+    const flags = next.selection_mode !== old.selection_mode || next.initial_box_mode !== old.initial_box_mode
+      ? ["ipcamera_restart"] : ["overlay_reload"];
+    requires.push(flags);
+    return fulfillJson(route, { valid: true, errors: [], warnings: [], requires: flags });
+  });
+  await page.route("**/api/v1/config", async (route) => {
+    if (route.request().method() === "PUT") {
+      const payload = await route.request().postDataJSON() as typeof document;
+      submitted.push(payload);
+      document = { ...payload, revision: `tracking-options-${submitted.length}` };
+      return fulfillJson(route, { saved: true, revision: document.revision, restart_required: submitted.length === 1 });
+    }
+    return fulfillJson(route, document);
+  });
+  await page.route("**/api/v1/config/apply", (route) => fulfillJson(route, { task_id: 81 }));
+  await page.route("**/api/v1/tasks/81", (route) => fulfillJson(route, { id: 81, state: "succeeded", progress: 100, message: "配置应用成功" }));
+  await discoverSingleDevice(page);
+  await page.getByRole("radio").click();
+  await page.getByRole("button", { name: "连接", exact: true }).click();
+
+  await expect(page.getByRole("combobox", { name: "点选位置" })).toHaveValue("point");
+  await expect(page.getByRole("combobox", { name: "初始化区域" })).toHaveValue("target");
+  await page.getByRole("combobox", { name: "点选位置" }).selectOption("reticle");
+  await page.getByRole("combobox", { name: "初始化区域" }).selectOption("fixed_80");
+  await page.getByRole("button", { name: /OSD 设置$/ }).click();
+  await page.getByRole("combobox", { name: "跟踪框样式" }).selectOption("corners");
+  await page.getByRole("switch", { name: "丢失时隐藏跟踪框" }).click();
+  await expect(page.locator(".overlay-preview__tracking .overlay-preview__corners")).toBeVisible();
+  await expect(page.locator(".overlay-preview__tracking-lost")).toHaveCount(0);
+  await page.locator(".overlay-preview").screenshot({ path: "/tmp/ovis-web-tracking.NuSjGM/tracking-corners.png" });
+  await page.getByRole("button", { name: "应用配置", exact: true }).click();
+  await expect(page.getByText("配置已应用")).toBeVisible();
+  expect(submitted[0].values.tracking.single_object).toMatchObject({ selection_mode: "reticle", initial_box_mode: "fixed_80" });
+  expect(submitted[0].values.overlay.tracking).toMatchObject({ boxStyle: "corners", hideWhenLost: true, color: "#FFB000", thickness: 3 });
+  expect(requires[0]).toEqual(["ipcamera_restart"]);
+
+  await page.reload();
+  await page.getByRole("button", { name: "搜索设备" }).click();
+  await page.getByRole("radio").click();
+  await page.getByRole("button", { name: "连接", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "点选位置" })).toHaveValue("reticle");
+  await expect(page.getByRole("combobox", { name: "初始化区域" })).toHaveValue("fixed_80");
+  await expect(page.getByRole("combobox", { name: "跟踪框样式" })).toHaveValue("corners");
+  await expect(page.getByRole("switch", { name: "丢失时隐藏跟踪框" })).toBeChecked();
+
+  await page.getByRole("combobox", { name: "跟踪框样式" }).selectOption("rectangle");
+  await page.getByRole("switch", { name: "丢失时隐藏跟踪框" }).click();
+  await expect(page.locator(".overlay-preview__tracking-lost")).toBeVisible();
+  await expect(page.locator(".overlay-preview__corners")).toHaveCount(0);
+  await page.getByRole("button", { name: "应用配置", exact: true }).click();
+  await expect(page.getByText("配置已应用")).toBeVisible();
+  expect(requires[1]).toEqual(["overlay_reload"]);
+  expect(submitted[1].values.tracking.single_object).toMatchObject({ selection_mode: "reticle", initial_box_mode: "fixed_80" });
+});
+
+test("omits configurable tracking options for older firmware", async ({ page }) => {
+  let payload: Record<string, unknown> | null = null;
+  await mockConfigurationRead(page, splitDetectionTrackingConfig());
+  await page.route("**/api/v1/config/validate", async (route) => {
+    payload = await route.request().postDataJSON();
+    return fulfillJson(route, { valid: false, errors: [{ field: "test", code: "TEST_STOP", message: "stop after capture" }], warnings: [], requires: [] });
+  });
+  await discoverSingleDevice(page);
+  await page.getByRole("radio").click();
+  await page.getByRole("button", { name: "连接", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "点选位置" })).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "初始化区域" })).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "跟踪框样式" })).toHaveCount(0);
+  await expect(page.getByRole("switch", { name: "丢失时隐藏跟踪框" })).toHaveCount(0);
+  await page.getByRole("switch", { name: "使用 Kalman 滤波" }).click();
+  await page.getByRole("button", { name: "保存单目标跟踪" }).click();
+  await expect.poll(() => payload).not.toBeNull();
+  expect(JSON.stringify(payload)).not.toMatch(/selection_mode|initial_box_mode|boxStyle|hideWhenLost/);
+});
