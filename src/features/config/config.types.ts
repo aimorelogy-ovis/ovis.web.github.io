@@ -381,5 +381,6 @@ export interface ConfigurationOutcome {
 
 export interface ConfigApplicationConfirmation {
   managementReconnect: boolean;
+  deviceReboot: boolean;
   warnings: ConfigIssue[];
 }

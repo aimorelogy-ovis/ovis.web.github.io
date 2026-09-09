@@ -1590,7 +1590,7 @@ test("previews and hot-applies capability-driven OSD settings without reconnecti
   await page.getByRole("button", { name: "搜索设备" }).click();
   await page.getByRole("radio").click();
   await page.getByRole("button", { name: "连接", exact: true }).click();
-  await page.getByRole("button", { name: "03 OSD 设置" }).click();
+  await page.getByRole("button", { name: /OSD 设置$/ }).click();
 
   const preview = page.locator(".overlay-preview");
   const previewBox = await preview.boundingBox();
@@ -1612,7 +1612,7 @@ test("previews and hot-applies capability-driven OSD settings without reconnecti
   await expect(preview.locator(".overlay-reticle--crosshair_dot")).toBeVisible();
 
   const requestsBeforeApply = deviceInfoRequests;
-  await page.getByRole("button", { name: "保存并应用" }).click();
+  await page.getByRole("button", { name: "应用配置" }).click();
   await expect(page.getByText("配置已应用")).toBeVisible({ timeout: 8_000 });
   await expect(page.getByText("设备在线").first()).toBeVisible();
   expect(deviceInfoRequests).toBe(requestsBeforeApply);
@@ -2531,6 +2531,7 @@ test("edits, validates, saves, applies, and polls configuration", async ({
   });
   await page.route("**/api/v1/tasks/12", (route) => {
     taskRequests += 1;
+    if (taskRequests > 2) return route.fulfill({ status: 404 });
     return fulfillJson(route, {
       id: 12,
       state: taskRequests === 1 ? "running" : "succeeded",
@@ -2595,14 +2596,14 @@ test("edits, validates, saves, applies, and polls configuration", async ({
   });
   await expect(applyConfirmation).toBeVisible();
   await expect(applyConfirmation).toContainText(
-    "USB 连接和管理网络可能短暂重连",
+    "切换 UVC / RTSP 会重启设备",
   );
-  await expect(applyConfirmation).toContainText("UVC 变更会短暂中断 USB 连接");
+  await expect(applyConfirmation).toContainText("USB 连接和管理网络可能短暂重连");
   expect(savePayload).toBeNull();
   await expect(uvcMode).toBeDisabled();
   await applyConfirmation.getByRole("button", { name: "确认并应用" }).click();
 
-  await expect(page.getByText("配置已保存，视频服务正在重启").first()).toBeVisible();
+  await expect(page.getByText("配置已保存，正在等待设备重启").first()).toBeVisible();
   await expect(page.getByTitle("重新搜索")).toBeDisabled();
   await expect(page.getByRole("button", { name: "恢复默认" })).toBeDisabled();
   const pendingApplication = await page.evaluate(() =>
@@ -2629,7 +2630,7 @@ test("edits, validates, saves, applies, and polls configuration", async ({
   await expect(rtspMode).toBeChecked();
   await expect(uvcMode).not.toBeChecked();
   expect(putRequests).toBe(1);
-  expect(taskRequests).toBe(2);
+  expect(taskRequests).toBe(3);
   expect(reconnectRequests).toBe(3);
   expect(
     await page.evaluate(() =>
@@ -2675,6 +2676,121 @@ test("edits, validates, saves, applies, and polls configuration", async ({
   expect(applyPayload).toEqual({ revision: "b929d204" });
 });
 
+for (const startWithUvc of [true, false]) {
+  test(`waits for ${startWithUvc ? "UVC to RTSP" : "RTSP to UVC"} reboot after early task success`, async ({ page }) => {
+    let phase: "before" | "offline" | "restarted" = "before";
+    let applyStarted = false;
+    let taskRequests = 0;
+    let putRequests = 0;
+    let activeRevision = currentConfig.revision;
+    let values = structuredClone(currentConfig.values);
+    values.outputs.uvc.enabled = startWithUvc;
+    values.outputs.rtsp.enabled = !startWithUvc;
+
+    await page.route("**/api/v1/config/capabilities", (route) => fulfillJson(route, configCapabilities));
+    await page.route("**/api/v1/config/validate", (route) => fulfillJson(route, {
+      valid: true, errors: [], warnings: [],
+      requires: startWithUvc ? ["ipcamera_restart", "usb_gadget_restart"] : [],
+    }));
+    await page.route("**/api/v1/config", async (route) => {
+      if (phase === "offline") return route.abort("connectionrefused");
+      if (route.request().method() === "PUT") {
+        putRequests += 1;
+        const payload = await route.request().postDataJSON();
+        values = payload.values;
+        activeRevision = "output-reboot-revision";
+        return fulfillJson(route, { saved: true, revision: activeRevision, restart_required: true });
+      }
+      return fulfillJson(route, { revision: activeRevision, values });
+    });
+    await page.route("**/api/v1/config/apply", (route) => {
+      applyStarted = true;
+      return fulfillJson(route, { task_id: 45 });
+    });
+    await page.route("**/api/v1/tasks/45", (route) => {
+      taskRequests += 1;
+      if (phase === "offline") return route.abort("connectionrefused");
+      if (phase === "restarted") return route.fulfill({ status: 404 });
+      return fulfillJson(route, {
+        id: 45, state: "succeeded", progress: 100,
+        message: "配置已保存，设备正在重启",
+      });
+    });
+    await discoverSingleDevice(page, (route) => {
+      if (requestHost(route) !== "192.168.42.1" || phase === "offline") {
+        return route.abort("connectionrefused");
+      }
+      return fulfillJson(route, deviceInfo);
+    });
+    await page.getByRole("radio").click();
+    await page.getByRole("button", { name: "连接", exact: true }).click();
+    await page.getByRole("radio", { name: startWithUvc ? "RTSP 输出" : "UVC USB 摄像头" }).click();
+    await page.getByRole("button", { name: "应用配置" }).click();
+    const confirmation = page.getByRole("alertdialog", { name: "确认应用这些配置？" });
+    await expect(confirmation).toContainText("切换 UVC / RTSP 会重启设备");
+    await confirmation.getByRole("button", { name: "确认并应用" }).click();
+
+    // The old device already exposes the target revision and a succeeded task.
+    await expect.poll(() => taskRequests).toBeGreaterThanOrEqual(2);
+    expect(applyStarted).toBe(true);
+    await expect(page.getByText("配置已保存，正在等待设备重启")).toBeVisible();
+    await expect(page.getByText("配置已应用")).toHaveCount(0);
+    await expect(page.locator(".operation-progress output")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "应用配置" })).toBeDisabled();
+    await expect(page.getByTitle("重新搜索")).toBeDisabled();
+    expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("ovis_pending_config_application")!))).toMatchObject({
+      reboot_required: true, target_revision: "output-reboot-revision",
+    });
+
+    if (startWithUvc) {
+      phase = "offline";
+      await expect(page.getByText("设备正在重新连接")).toBeVisible();
+      await expect(page.getByText("无法访问所选设备")).toHaveCount(0);
+      await expect(page.getByText("配置已应用")).toHaveCount(0);
+    } else {
+      // Refresh before the reboot, then miss the offline window entirely.
+      const beforeRefresh = taskRequests;
+      await page.reload();
+      await expect.poll(() => taskRequests).toBeGreaterThan(beforeRefresh);
+      await expect(page.getByText("配置已保存，正在等待设备重启")).toBeVisible();
+      await expect(page.getByText("配置已应用")).toHaveCount(0);
+    }
+
+    phase = "restarted";
+    await expect(page.getByText("配置已应用")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("radio", { name: startWithUvc ? "RTSP 输出" : "UVC USB 摄像头" })).toBeChecked();
+    await expect(page.getByTitle("重新搜索")).toBeEnabled();
+    expect(putRequests).toBe(1);
+    expect(await page.evaluate(() => sessionStorage.getItem("ovis_pending_config_application"))).toBeNull();
+  });
+}
+
+test("times out when output reboot never happens despite task success", async ({ page }) => {
+  await page.addInitScript(({ info }) => {
+    sessionStorage.setItem("ovis_pending_config_application", JSON.stringify({
+      device_id: info.device_id,
+      api_base_url: "http://192.168.42.1:8080/api/v1",
+      task_id: 46,
+      target_revision: "reboot-timeout-revision",
+      started_at: Date.now() - 87_000,
+      reconnect_required: true,
+      reboot_required: true,
+    }));
+  }, { info: deviceInfo });
+  await page.route("**/api/v1/device/info", (route) => fulfillJson(route, deviceInfo));
+  await page.route("**/api/v1/config/capabilities", (route) => fulfillJson(route, configCapabilities));
+  await page.route("**/api/v1/config", (route) => fulfillJson(route, {
+    revision: "reboot-timeout-revision", values: currentConfig.values,
+  }));
+  await page.route("**/api/v1/tasks/46", (route) => fulfillJson(route, {
+    id: 46, state: "succeeded", progress: 100, message: "配置已保存，设备正在重启",
+  }));
+  await page.goto("./");
+  await expect(page.getByText("暂时无法重新连接设备").first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("配置已应用")).toHaveCount(0);
+  expect(await page.evaluate(() => sessionStorage.getItem("ovis_pending_config_application"))).toBeNull();
+});
+
 test("searches the address pool and reconnects only the original device id", async ({
   page,
 }) => {
@@ -2684,7 +2800,7 @@ test("searches the address pool and reconnects only the original device id", asy
     fulfillJson(route, configCapabilities),
   );
   await page.route("**/api/v1/config/validate", (route) =>
-    fulfillJson(route, { valid: true, errors: [], warnings: [], requires: [] }),
+    fulfillJson(route, { valid: true, errors: [], warnings: [], requires: ["ipcamera_restart"] }),
   );
   await page.route("**/api/v1/config/apply", (route) => {
     applyStarted = true;
@@ -2723,7 +2839,7 @@ test("searches the address pool and reconnects only the original device id", asy
   });
   await page.getByRole("radio").click();
   await page.getByRole("button", { name: "连接", exact: true }).click();
-  await page.getByRole("region", { name: "主码流" }).getByRole("spinbutton").fill("9000");
+  await page.getByRole("region", { name: "主码流" }).getByRole("combobox", { name: "帧率" }).selectOption("60");
   await page.getByRole("button", { name: "应用配置" }).click();
 
   await expect(page.getByText("设备正在重新连接")).toBeVisible();
@@ -2806,7 +2922,7 @@ test("fails verification when the target revision is not active", async ({
   await discoverSingleDevice(page);
   await page.getByRole("radio").click();
   await page.getByRole("button", { name: "连接", exact: true }).click();
-  await page.getByRole("region", { name: "主码流" }).getByRole("spinbutton").fill("9000");
+  await page.getByRole("region", { name: "主码流" }).getByRole("combobox", { name: "帧率" }).selectOption("60");
   await page.getByRole("button", { name: "应用配置" }).click();
 
   await expect(page.getByText("应用失败，已恢复原配置").first()).toBeVisible({

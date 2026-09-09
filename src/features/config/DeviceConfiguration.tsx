@@ -874,7 +874,9 @@ export function DeviceConfiguration({
     confirming: t("config.confirming"),
     saving: t("config.saving"),
     applying: t("config.applying"),
-    restart_pending: t("config.restartPending"),
+    restart_pending: t(configuration.deviceRebootRequired
+      ? "config.deviceRestartPending"
+      : "config.restartPending"),
     reconnecting: t("config.reconnectingStatus"),
     verifying: t("config.verifyingStatus"),
     resetting: t("config.resetting"),
@@ -1256,16 +1258,20 @@ export function DeviceConfiguration({
             <div className="configuration-loading" aria-live="polite">
               <LoaderCircle size={25} />
               <strong>
-                {configuration.applicationState === "reconnecting"
-                  ? t("config.reconnecting")
-                  : configuration.applicationState === "verifying"
-                    ? t("config.verifying")
-                    : t("config.loading")}
+                {configuration.applicationState === "restart_pending"
+                  ? busyStatusLabel.restart_pending
+                  : configuration.applicationState === "reconnecting"
+                    ? t("config.reconnecting")
+                    : configuration.applicationState === "verifying"
+                      ? t("config.verifying")
+                      : t("config.loading")}
               </strong>
               <span>
-                {configuration.applicationState === "reconnecting"
-                  ? t("config.reconnectingDetail")
-                  : t("config.loadingDetail")}
+                {configuration.deviceRebootRequired
+                  ? t("config.deviceRebootDetail")
+                  : configuration.applicationState === "reconnecting"
+                    ? t("config.reconnectingDetail")
+                    : t("config.loadingDetail")}
               </span>
             </div>
           )}
@@ -1370,7 +1376,9 @@ export function DeviceConfiguration({
                         {t("config.applyConfirmTitle")}
                       </strong>
                       {configuration.applicationConfirmation.managementReconnect && (
-                        <span>{t("config.managementReconnectWarning")}</span>
+                        <span>{t(configuration.applicationConfirmation.deviceReboot
+                          ? "config.deviceRebootWarning"
+                          : "config.managementReconnectWarning")}</span>
                       )}
                       {configuration.applicationConfirmation.warnings.map((warning) => (
                         <span key={`${warning.field}-${warning.code}`}>
@@ -1401,26 +1409,30 @@ export function DeviceConfiguration({
                       <LoaderCircle size={16} />
                       <strong>{busyStatusLabel[activeStatus]}</strong>
                       <span>
-                        {configuration.applicationState === "restart_pending"
-                          ? t("config.restartPending")
-                          : configuration.task
-                            ? localizedTaskMessage(
-                                configuration.task,
-                                i18n.language,
-                              )
-                            : t("config.networkTolerance")}
+                        {configuration.deviceRebootRequired
+                          ? t("config.deviceRebootDetail")
+                          : configuration.applicationState === "restart_pending"
+                            ? t("config.restartPending")
+                            : configuration.task
+                              ? localizedTaskMessage(
+                                  configuration.task,
+                                  i18n.language,
+                                )
+                              : t("config.networkTolerance")}
                       </span>
-                      {configuration.task?.progress !== undefined && (
+                      {!configuration.deviceRebootRequired && configuration.task?.progress !== undefined && (
                         <output>{taskProgress}%</output>
                       )}
                     </div>
-                    <span className="operation-progress__track">
-                      <span
-                        style={{
-                          width: `${configuration.task ? taskProgress : 12}%`,
-                        }}
-                      />
-                    </span>
+                    {!configuration.deviceRebootRequired && (
+                      <span className="operation-progress__track">
+                        <span
+                          style={{
+                            width: `${configuration.task ? taskProgress : 12}%`,
+                          }}
+                        />
+                      </span>
+                    )}
                   </div>
                 )}
 

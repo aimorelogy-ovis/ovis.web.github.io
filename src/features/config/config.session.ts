@@ -7,6 +7,7 @@ export interface PendingConfigApplication {
   target_revision: string;
   started_at: number;
   reconnect_required?: boolean;
+  reboot_required?: boolean;
 }
 
 function isPendingConfigApplication(value: unknown): value is PendingConfigApplication {
@@ -24,7 +25,9 @@ function isPendingConfigApplication(value: unknown): value is PendingConfigAppli
     typeof pending.started_at === "number" &&
     Number.isFinite(pending.started_at) &&
     (pending.reconnect_required === undefined ||
-      typeof pending.reconnect_required === "boolean")
+      typeof pending.reconnect_required === "boolean") &&
+    (pending.reboot_required === undefined ||
+      typeof pending.reboot_required === "boolean")
   );
 }
 

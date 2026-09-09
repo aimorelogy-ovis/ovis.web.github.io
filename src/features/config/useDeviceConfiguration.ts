@@ -898,6 +898,7 @@ interface PendingValidatedApplication {
   payload: ConfigPayload;
   controller: AbortController;
   requiresReconnect: boolean;
+  requiresDeviceReboot: boolean;
 }
 
 export function useDeviceConfiguration({
@@ -920,6 +921,9 @@ export function useDeviceConfiguration({
         : "idle",
     );
   const [capabilities, setCapabilities] = useState<ConfigCapabilities | null>(null);
+  const [deviceRebootRequired, setDeviceRebootRequired] = useState(
+    pendingAtMount?.reboot_required === true,
+  );
   const [revision, setRevision] = useState<string | null>(null);
   const [targetRevision, setTargetRevision] = useState<string | null>(
     pendingAtMount?.target_revision ?? null,
@@ -1023,7 +1027,7 @@ export function useDeviceConfiguration({
       let nextCapabilities = capabilities;
 
       while (!controller.signal.aborted && Date.now() < deadline) {
-        setApplicationState("verifying");
+        setApplicationState(pending.reboot_required ? "restart_pending" : "verifying");
         try {
           const [nextTask, document, loadedCapabilities] = await Promise.all([
             getTaskAllowMissing(
@@ -1043,10 +1047,15 @@ export function useDeviceConfiguration({
           if (nextTask?.state === "failed") {
             return { document, capabilities: loadedCapabilities, task: nextTask };
           }
-          if (nextTask?.state === "succeeded") {
+          if (nextTask?.state === "succeeded" && !pending.reboot_required) {
             return { document, capabilities: loadedCapabilities, task: nextTask };
           }
+          // The firmware reports success when it schedules the reboot, before
+          // going offline. Its in-memory task disappears after Manager restarts.
+          // Keep waiting even if the new revision is already readable, including
+          // after a page refresh or when the browser missed the offline window.
           if (nextTask === null) {
+            setApplicationState("verifying");
             return { document, capabilities: loadedCapabilities, task: nextTask };
           }
           await delay(
@@ -1285,10 +1294,11 @@ export function useDeviceConfiguration({
   );
 
   const persistValidatedApplication = useCallback(
-    async ({ payload, controller, requiresReconnect }: PendingValidatedApplication) => {
+    async ({ payload, controller, requiresReconnect, requiresDeviceReboot }: PendingValidatedApplication) => {
       pendingValidatedApplication.current = null;
       setApplicationConfirmation(null);
       setApplicationState("saving");
+      setDeviceRebootRequired(requiresDeviceReboot);
 
       try {
         const saved = await saveConfig(apiBaseUrl, payload, controller.signal);
@@ -1311,6 +1321,7 @@ export function useDeviceConfiguration({
           target_revision: saved.revision,
           started_at: startedAt,
           reconnect_required: requiresReconnect,
+          reboot_required: requiresDeviceReboot,
         };
         writePendingConfigApplication(pending);
         if (requiresReconnect) {
@@ -1397,14 +1408,16 @@ export function useDeviceConfiguration({
       );
       const uvcChanged =
         capabilities.outputs?.uvc.supported === true &&
-        original.outputs?.uvc.enabled !== draft.outputs?.uvc.enabled;
+        original.outputs?.uvc.enabled !== scopedValues.outputs?.uvc.enabled;
+      const requiresDeviceReboot =
+        uvcChanged || validationResult.requires.includes("usb_gadget_restart");
       const requiresReconnect =
         managementReconnect ||
-        uvcChanged ||
+        requiresDeviceReboot ||
         validationResult.requires.includes("ipcamera_restart");
       const needsConfirmation =
         managementReconnect ||
-        uvcChanged ||
+        requiresDeviceReboot ||
         validationResult.warnings.length > 0;
 
       if (needsConfirmation) {
@@ -1412,16 +1425,20 @@ export function useDeviceConfiguration({
           payload,
           controller,
           requiresReconnect,
+          requiresDeviceReboot,
         };
         setApplicationConfirmation({
-          managementReconnect: managementReconnect || uvcChanged,
+          managementReconnect: managementReconnect || requiresDeviceReboot,
+          deviceReboot: requiresDeviceReboot,
           warnings: validationResult.warnings,
         });
         setApplicationState("confirming");
         return;
       }
 
-      await persistValidatedApplication({ payload, controller, requiresReconnect });
+      await persistValidatedApplication({
+        payload, controller, requiresReconnect, requiresDeviceReboot,
+      });
     } catch (error) {
       await finishApplicationError(error, controller);
     }
@@ -1541,6 +1558,7 @@ export function useDeviceConfiguration({
     applicationBusy,
     capabilities,
     revision,
+    deviceRebootRequired,
     targetRevision,
     original,
     draft,

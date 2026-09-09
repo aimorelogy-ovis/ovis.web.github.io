@@ -755,21 +755,22 @@ export function useDeviceConnection(): UseDeviceConnection {
     const target = connectedTarget.current;
     let failures = 0;
     let heartbeatRunning = false;
+    let active = true;
 
     const heartbeat = window.setInterval(async () => {
-      if (heartbeatRunning) return;
+      if (!active || applicationLockedRef.current || heartbeatRunning) return;
       heartbeatRunning = true;
 
       try {
         const info = await fetchDeviceInfo(target.apiBaseUrl);
-        if (operationGeneration.current !== generation) return;
+        if (!active || applicationLockedRef.current || operationGeneration.current !== generation) return;
         if (info.device_id !== target.deviceId) {
           throw new DeviceConnectionError("DEVICE_CHANGED");
         }
         failures = 0;
         setDevice(info);
       } catch {
-        if (operationGeneration.current !== generation) return;
+        if (!active || applicationLockedRef.current || operationGeneration.current !== generation) return;
         failures += 1;
         if (failures >= MAX_CONSECUTIVE_FAILURES) {
           window.clearInterval(heartbeat);
@@ -792,7 +793,10 @@ export function useDeviceConnection(): UseDeviceConnection {
       }
     }, HEARTBEAT_INTERVAL_MS);
 
-    return () => window.clearInterval(heartbeat);
+    return () => {
+      active = false;
+      window.clearInterval(heartbeat);
+    };
   }, [applicationLocked, state, updateDevices]);
 
   useEffect(() => {
